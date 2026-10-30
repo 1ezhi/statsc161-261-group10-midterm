@@ -1,0 +1,23 @@
+# Local backup of the verbose notebook; not part of the submission.
+build_features.full-backup.ipynb
+
+# Downloaded inputs; rebuild with scripts/fetch_catalog.py and scripts/build_volume_panel.py.
+data/
+
+# Built dataset; rebuild with build_features.ipynb.
+features.parquet
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
