@@ -1,0 +1,661 @@
+---
+title: "Graphing Random Stuff"
+author: "Gurpreet Khamba"
+date: "`r format(Sys.Date(), '%D')`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '4'
+    extra_dependencies: ["float"]
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library
+```{r Library, message=FALSE}
+library(tidyverse)
+library(knitr)
+library(car)
+library(leaps)
+library(MASS)
+library(lubridate)
+library(scales)
+library(arrow)
+library(viridis)
+```
+
+# Graphing
+
+```{r}
+# 
+# # test <- open_dataset("C161_output_v10_29/")
+# 
+# 
+# test <- read_parquet("C161_output_v10_29/wallet_features_50.parquet")
+# 
+# 
+# test
+# 
+# wallet_features_20.parquet
+```
+
+
+## Loading:
+```{r}
+dataset <- open_dataset("C161_output_v10_26_1/")
+
+# target_market <- "another-us-debt-downgrade-before-2027"
+
+df_plot <- dataset |>
+  collect() |>
+  mutate(trade_date = as_date(trade_date)) |>
+  filter(!is.na(trade_date)) |>
+  group_by(trade_date) |>
+  summarise(
+    daily_volume        = sum(daily_volume, na.rm = TRUE),
+    unique_traders      = sum(unique_traders, na.rm = TRUE),
+    max_wallet_volume   = max(max_wallet_volume, na.rm = TRUE),
+    volume_7d_ma        = mean(volume_7d_ma, na.rm = TRUE),
+    volume_velocity     = mean(volume_velocity, na.rm = TRUE),
+    hedger_volume_ratio = sum(hedger_volume_ratio * daily_volume, na.rm = TRUE) / sum(daily_volume, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(trade_date)
+
+dataset |> 
+  distinct(market) |> 
+  collect()
+
+head(df_plot$trade_date, 10)
+
+nrow(df_plot)
+
+# 
+# df_plot <- df_plot |>
+#   mutate(
+#     # Use rollsum instead of rollmean to get the 7-day cumulative total
+#     volume_7d_sum = zoo::rollsum(daily_volume, k = 7, fill = NA, align = "right")
+#   )
+# 
+# 
+# # Quick check in your console to compare scales
+# summary(df_plot$daily_volume)
+# summary(df_plot$volume_7d_ma)
+# summary(df_plot$volume_7d_sum)
+```
+
+## 1:
+```{r 1a} 
+df_long <- df_plot |>
+  dplyr::select(trade_date, daily_volume, volume_7d_ma) |>
+  pivot_longer(
+    cols = c(daily_volume, volume_7d_ma), 
+    names_to = "metric", 
+    values_to = "value"
+  ) |>
+  mutate(metric = case_match(metric,
+    "daily_volume" ~ "Daily Volume",
+    "volume_7d_ma" ~ "7-Day Moving Average"
+  ))
+
+
+ggplot(df_long, aes(x = trade_date, y = value, color = metric)) +
+  geom_line(linewidth = 1) +
+  scale_y_continuous(labels = scales::label_dollar()) +
+  # scale_color_manual(values = c("#2b5c8f", "#e84545")) +
+  scale_color_viridis_d(option = "turbo")+
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Daily Trading Volume & Trend",
+    y = "USD Volume",
+    x = " ",
+    color = "Metric"
+  ) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), 
+        legend.position = c(0.85, 0.85)
+        )
+
+
+
+df_ma_only <- df_plot |>
+  filter(!is.na(volume_7d_ma))
+
+ggplot(df_ma_only, aes(x = trade_date, y = volume_7d_ma)) +
+  geom_area(fill = "red", alpha = 0.15) +
+  geom_line(color = "red", linewidth = 1.2) +
+  scale_y_continuous(labels = scales::label_dollar()) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Platform 7-Day Moving Average Trading Volume",
+    y = "USD",
+    x = " "
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+  )
+
+
+```
+```{r}
+
+df_plot2 <- dataset |>
+  collect() |>
+  mutate(trade_date = as_date(trade_date)) |>
+  filter(!is.na(trade_date)) |>
+  group_by(trade_date) |>
+  summarise(
+    daily_volume = sum(daily_volume, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(trade_date) |>
+  mutate(
+    volume_7d_ma = zoo::rollmean(daily_volume, k = 7, fill = NA, align = "right")
+  )
+
+df_long <- df_plot2 |>
+  filter(!is.na(volume_7d_ma)) |>
+  dplyr::select(trade_date, daily_volume, volume_7d_ma) |>
+  pivot_longer(
+    cols = c(daily_volume, volume_7d_ma), 
+    names_to = "metric", 
+    values_to = "value"
+  ) |>
+  mutate(metric = case_match(metric,
+    "daily_volume" ~ "Daily Volume",
+    "volume_7d_ma" ~ "7-Day Moving Average"
+  ))
+
+
+p11 <- ggplot(df_long, aes(x = trade_date, y = value, color = metric)) +
+  geom_line(aes(linetype = metric),
+            linewidth = 1) +
+scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale()))+  scale_color_viridis_d(option = "turbo") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Daily Trading Volume & Trend",
+    y = "USD Volume",
+    x = NULL,
+    color = "Metric",
+    linetype = "Metric"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = c(0.80, 0.85)
+  )
+
+p11
+```
+
+
+
+```{r}
+top_n_markets <- 15
+max_title_length <- 35  
+
+df_top_markets <- dataset |>
+  collect() |>
+  group_by(market) |>
+  summarise(
+    total_volume = sum(daily_volume, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  slice_max(order_by = total_volume, n = top_n_markets) |>
+  mutate(
+    short_market = str_trunc(market, width = max_title_length, side = "right"),
+    short_market = fct_reorder(short_market, total_volume)
+  )
+
+p_top_markets <- ggplot(df_top_markets, aes(x = total_volume, y = short_market)) +
+  geom_col(fill = "#2b5c8f", width = 0.7) +
+  geom_text(
+    aes(label = scales::label_dollar(accuracy = 0.1, scale_cut = scales::cut_short_scale())(total_volume)),
+    hjust = -0.15,
+    size = 4,
+    fontface = "bold"
+  ) +
+  scale_x_continuous(
+    labels = scales::label_dollar(scale_cut = scales::cut_short_scale()),
+    expand = expansion(mult = c(0, 0.20)) 
+  ) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = paste0("Top ", top_n_markets, " Markets by Cumulative Volume"),
+    x = NULL,
+    y = NULL
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.y = element_text(size = 11)
+  )
+
+print(p_top_markets)
+```
+
+```{r}
+df_all_markets <- dataset |>
+  collect() |>
+  group_by(market) |>
+  summarise(
+    total_volume = sum(daily_volume, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  filter(total_volume > 0)
+
+p_distribution <- ggplot(df_all_markets, aes(x = total_volume)) +
+  geom_histogram(
+    aes(fill = after_stat(x)), 
+    color = "white", 
+    bins = 40, 
+    alpha = 0.9
+  ) +
+  scale_fill_viridis_c(option = "plasma", guide = "none") + 
+  scale_x_log10(
+    labels = scales::label_dollar(scale_cut = scales::cut_short_scale())
+  ) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Volume Distribution Across Selected Markets",
+    x = "Total Market Volume (USD, Log Scale)",
+    y = "Num of Markets"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    panel.grid.minor = element_blank()
+  )
+
+print(p_distribution)
+
+
+```
+
+```{r}
+df_all_markets <- dataset |>
+  collect() |>
+  group_by(market) |>
+  summarise(
+    total_volume = sum(daily_volume, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  filter(total_volume > 0)
+
+p_linear_dist <- ggplot(df_all_markets, aes(x = total_volume)) +
+  geom_histogram(
+    fill = "blue", 
+    color = "white", 
+    bins = 50, 
+    alpha = 0.85
+  ) +
+  scale_x_continuous(
+    labels = scales::label_dollar(scale_cut = scales::cut_short_scale())
+  ) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Platform Volume Distribution",
+    x = NULL,
+    y = "Number of Markets"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    panel.grid.minor = element_blank()
+  )
+
+print(p_linear_dist)
+
+```
+
+
+
+## 2:
+```{r 2} 
+df_long_part <- df_plot |>
+  dplyr::select(trade_date, unique_traders, volume_velocity) |>
+  pivot_longer(cols = c(unique_traders, volume_velocity), names_to = "metric", values_to = "value") |>
+  mutate(metric = case_match(metric, "unique_traders" ~ "Unique Traders", "volume_velocity" ~ "Volume Velocity"))
+
+p2 <- ggplot(df_long_part, aes(x = trade_date, y = value, color = metric)) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ metric, scales = "free_y", ncol = 1) +
+  scale_color_manual(values = c("lightgreen", "red")) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Platform Participation & Velocity",
+    x = NULL,
+    y = NULL,
+    color = "Metric"
+  ) +
+  theme(plot.title = element_text(face = "bold"), legend.position = "none")
+
+print(p2)
+```
+Lines align very well.
+
+
+## 3:
+```{r 3}
+df_whale <- df_plot |>
+  mutate(max_wallet_share = max_wallet_volume / daily_volume)
+
+p3 <- ggplot(df_whale, aes(x = trade_date, y = max_wallet_share)) +
+  geom_col(fill = "darkred", alpha = 0.8) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Single-Wallet Share",
+    x = NULL,
+    y = "Top Wallet Volume %"
+  ) +
+  theme(plot.title = element_text(face = "bold",  hjust = 0.5))
+
+print(p3)
+
+
+```
+
+
+
+## 4:
+```{r 4}
+p4 <- ggplot(
+  df_plot |> filter(!is.na(hedger_volume_ratio)), 
+  aes(x = trade_date, y = hedger_volume_ratio / 100) # Divide by 100 to convert to true ratio
+) +
+  geom_line(color = "#4e8098", linewidth = 1) +
+  geom_point(color = "#1f4068", size = 1.5) +
+  scale_y_continuous(
+    labels = scales::label_percent(accuracy = 0.1),
+    expand = expansion(mult = c(0.05, 0.1))
+  ) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Hedger Volume Proportion",
+    x = NULL,
+    y = "Hedger Volume Share"
+  ) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(p4)
+```
+
+## 5:
+```{r 5}
+df_intensity <- df_plot |>
+  mutate(avg_volume_per_trader = daily_volume / unique_traders)
+
+p5 <- ggplot(df_intensity, aes(x = trade_date, y = avg_volume_per_trader)) +
+  geom_line(color = "purple", linewidth = 1) +
+  scale_y_continuous(labels = scales::label_dollar()) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Average Capital Deployed per Trader",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(p5)
+
+#  whether whales take a larger share during quiet or active days
+p6 <- ggplot(df_plot, aes(x = daily_volume, y = max_wallet_volume)) +
+  geom_point(alpha = 0.5, color = "green", size = 2) +
+  geom_smooth(method = "loess", color = "orange", linewidth = 1, se = TRUE) +
+  scale_x_log10(labels = scales::label_dollar()) +
+  scale_y_log10(labels = scales::label_dollar()) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Whale Wallet Size vs. Total Daily Volume",
+    x = "Total Daily Volume",
+    y = "Max Wallet Volume"
+  ) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(p6)
+
+
+p7 <- ggplot(df_plot, aes(x = trade_date, y = volume_velocity)) +
+  geom_col(aes(fill = volume_velocity > 0), show.legend = FALSE) +
+  scale_fill_manual(values = c("orange", "green")) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Platform Volume Velocity Momentum",
+    x = NULL,
+    y = "Volume Velocity Index"
+  ) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(p7)
+
+
+p8 <- ggplot(df_plot, aes(x = hedger_volume_ratio, y = daily_volume)) +
+  geom_point(alpha = 0.4, color = "blue", size = 2) +
+  scale_y_continuous(labels = scales::label_dollar()) +
+  scale_x_continuous(labels = scales::label_percent()) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Hedging Activity Proportion by Market Scale",
+    subtitle = "Evaluating if large volume days attract higher hedging ratios",
+    x = "Hedger Volume Ratio",
+    y = "Daily Volume"
+  ) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(p8)
+```
+7 predictors: MaritalUnmarried, Weeks, GenderMale, Gained, HabitSmoker, LowBirthWeightNot and Mage
+
+
+```{r}
+dataset2 <- open_dataset("C161_output_v10_26_1/")
+
+
+names(dataset2)
+
+total_rows <- dataset2 |> tally() |> pull()
+print(paste("Total rows in dataset:", format(total_rows, big.mark = ",")))
+
+
+raw_sample <- dataset2 |> 
+  head(10) |> 
+  collect()
+
+print(raw_sample)
+```
+
+
+```{r}
+file_info <- file.info(list.files("C161_output_v10_26_1/", full.names = TRUE))
+print(file_info[, c("size", "mtime")])
+
+dataset <- open_dataset("C161_output_v10_26_1/")
+
+fragments <- dataset$files
+print("Underlying files in dataset:")
+print(fragments)
+
+df_full <- dataset |> collect()
+
+print(dim(df_full))
+print(names(df_full))
+
+```
+
+
+```{r}
+
+df_full <- read_parquet("C161_output_v10_26_1/daily_feature.parquet") |>
+  mutate(trade_date = as_date(trade_date))
+
+df_wallet_daily <- read_parquet("C161_output_v10_26_1/wallet_daily.parquet") |>
+  mutate(trade_date = as_date(trade_date))
+
+colnames(df_wallet_daily)
+
+print(dim(df_full)) 
+
+ggplot(df_full, aes(x = trade_date, y = daily_volume, group = market)) +
+  geom_line(alpha = 0.1, color = "blue") +
+  scale_y_log10(labels = scales::comma) +
+  labs(
+    title = "Full Daily Volume",
+    x = "Date",
+    y = "Daily Volume (Log Scale)"
+  ) +
+  theme_minimal()
+
+
+
+df_quantiles <- df_full |>
+  group_by(trade_date) |>
+  summarise(
+    p25 = quantile(unique_traders, 0.25, na.rm = TRUE),
+    median = median(unique_traders, na.rm = TRUE),
+    p75 = quantile(unique_traders, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+  # Interquartile Range 25th–75th percentiles
+
+ggplot(df_quantiles, aes(x = trade_date)) +
+  geom_ribbon(aes(ymin = p25, ymax = p75), fill = "steelblue", alpha = 0.3) +
+  geom_line(aes(y = median), color = "midnightblue", linewidth = 0.8) +
+  labs(
+    title = "Daily Unique Trader Dispersion Across Markets",
+    x = "Date",
+    y = "Unique Traders per Market"
+  ) +
+  theme_minimal()
+
+
+
+ggplot(df_full |> filter(daily_volume > 0), aes(x = max_wallet_volume / daily_volume)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white", alpha = 0.8) +
+  scale_x_continuous(labels = percent) +
+  labs(
+    title = "Single-Wallet Volume Concentration Distribution",
+    x = "Max Wallet Share of Daily Volume",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+
+
+df_full |>
+  mutate(
+    volume_tier = case_when(
+      daily_volume < 100 ~ "Micro (< $100)",
+      daily_volume >= 100 & daily_volume <= 10000 ~ "Mid ($100 - $10k)",
+      daily_volume > 10000 ~ "High (> $10k)"
+    ),
+    # Explicitly set the factor levels in your preferred order
+    volume_tier = factor(volume_tier, levels = c("Micro (< $100)", "Mid ($100 - $10k)", "High (> $10k)")),
+    max_share = max_wallet_volume / daily_volume
+  ) |>
+  filter(!is.na(max_share)) |>
+  ggplot(aes(x = max_share)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "midnightblue", alpha = 0.8) +
+  scale_x_continuous(labels = percent) +
+  facet_wrap(~ volume_tier, scales = "free_y") +
+  labs(
+    title = "Wallet Concentration by Volume Tier",
+    x = "Max Wallet Share of Daily Volume",
+    y = "Frequency (Days)"
+  ) +
+  theme_minimal()+
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+  )
+
+
+```
+
+
+```{r}
+df_full |>
+  arrange(market, trade_date) |>
+  group_by(market) |>
+  mutate(
+    lag_velocity = lag(volume_velocity, 1)
+  ) |>
+  ungroup() |>
+  filter(!is.na(volume_velocity) & !is.na(lag_velocity)) |>
+  ggplot(aes(x = lag_velocity, y = volume_velocity)) +
+  geom_point(alpha = 0.3, size = 1.2, color = "green") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red", linewidth = 0.8) +
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Volume Velocity Persistence",
+    x = "Previous Day's Volume Velocity",
+    y = "Current Day's Volume Velocity"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold", size = 14, hjust = .5),
+    axis.title = element_text(face = "bold")
+  )
+
+
+```
+
+
+```{r}
+df_whale_concentration <- df_wallet_daily |>
+  group_by(trade_date, wallet) |>
+  summarise(wallet_daily_vol = sum(wallet_vol, na.rm = TRUE), .groups = "drop_last") |>
+  mutate(
+    rank = min_rank(desc(wallet_daily_vol)),
+    total_traders = n(),
+    is_top_5pct = rank <= pmax(1, ceiling(total_traders * 0.05))
+  ) |>
+  summarise(
+    total_daily_vol = sum(wallet_daily_vol, na.rm = TRUE),
+    top_5pct_vol = sum(wallet_daily_vol[is_top_5pct], na.rm = TRUE),
+    whale_share = top_5pct_vol / total_daily_vol,
+    .groups = "drop"
+  )
+
+
+p_whales <- ggplot(df_whale_concentration, aes(x = trade_date, y = whale_share)) +
+  geom_area(fill = "purple", alpha = 0.08) +
+  geom_line(color = "purple", linewidth = 1.1) +
+  geom_smooth(method = "loess", span = 0.25, se = FALSE, color = "red", linewidth = 1) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1), 
+    limits = c(0, 1),
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+  scale_x_date(
+    date_labels = "%b %Y",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Top 5% Wallet Volume Share Over Time",
+    x = NULL, 
+    y = "Whale Volume Share"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, color = "#2b2b2b", hjust = 0.5),
+    plot.subtitle = element_text(size = 11, color = "#666666", margin = margin(b = 15)),
+    axis.title.y = element_text(size = 11, face = "bold", color = "#444444", margin = margin(r = 10)),
+    axis.text = element_text(color = "#555555", size = 10),
+    panel.grid.major = element_line(color = "#eaeaea", linewidth = 0.5),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(t = 20, r = 20, b = 20, l = 20)
+  )
+
+print(p_whales)
+```
+
